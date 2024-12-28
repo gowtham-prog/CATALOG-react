@@ -167,7 +167,7 @@ const CombinedChart = () => {
 
   const options = {
     responsive: true,
-    maintainAspectRatio: true,
+    maintainAspectRatio: {fullScreen},
     axis: 'xy',
     mode: 'interpolate',
     interaction: {
@@ -183,7 +183,7 @@ const CombinedChart = () => {
         type: 'linear',
         position: 'left',
         grid: { display: false, color: '#e5e7eb' },
-        beginAtZero: false,
+        beginAtZero: true,
         ticks: { display: false },
       },
       y2: {
@@ -323,7 +323,6 @@ const CombinedChart = () => {
           </div>
         </div>
 
-        {/* Price Change */}
         <div className="flex flex-row w-full text-[#67bf6b] items-center justify-between text-sm sm:text-base md:text-lg">
           {`+${priceChange} (${percentageChange}%)`}
         </div>
@@ -362,12 +361,14 @@ const CombinedChart = () => {
       </div>
 
       { fullScreen && (
-        <div className="fixed top-0 left-0 w-screen h-screen bg-gray-400 backdrop-blur-xl bg-opacity-50 z-50 flex items-center justify-center">
-          <div className="relative flex w-full h-full p-8 items-center justify-center">
-            <div className="absolute top-8 right-8 cursor-pointer" onClick={() => {setFullScreen(false)}}>  
+        <div className="fixed top-0 left-0 h-screen w-full min-w-screen bg-gray-400 backdrop-blur-xl bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="relative flex w-full h-full max-w-screen max-h-screen p-4 md:p-8 items-center justify-center">
+            <div className="fixed top-8 right-8 cursor-pointer" onClick={() => {setFullScreen(false)}}>  
               <img src={closeIcon} alt="Close Icon" className="w-6 h-6" />  
             </div>
-            <Chart ref={fullChartRef} type="bar" data={chartData} options={options} />
+            <div className='flex items-center justify-center w-full h-full '>
+              <Chart ref={fullChartRef} type="bar" data={chartData} options={options} />
+            </div>
           </div>
         </div>
       )}
