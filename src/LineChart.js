@@ -6,17 +6,19 @@ import {
   LinearScale,
   LineElement,
   PointElement,
-  Tooltip
+  Tooltip,
 } from 'chart.js';
+import customRibbonPlugin from './components/customRibbon';
 import React, { useEffect, useState, useRef } from 'react';
 import { STOCK_API_KEY } from './config';
 import { Chart } from 'react-chartjs-2';
+import closeIcon from "./assets/closeIcon.svg";
 import TabBar from './components/tabBar';
 import TimeframeSelector from './components/timeFrameSelector';
 import FullScreenIcon from "./assets/expand.svg";
 import compareIcon from "./assets/Compare.svg";
 // Register Chart.js components
-ChartJS.register(LineElement, BarElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend);
+ChartJS.register(LineElement, BarElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, customRibbonPlugin);
 
 const CombinedChart = () => {
   const [chartData, setChartData] = useState(null);
@@ -28,11 +30,12 @@ const CombinedChart = () => {
   const [priceChange, setPriceChange] = useState(null);
   const [percentageChange, setPercentageChange] = useState(null);
   const chartRef = useRef(null); // Create a ref to access the chart instance
+  const fullChartRef = useRef(null);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 }); // State to store mouse position
 
   // Handle the mousemove event and update the mouse position
   useEffect(() => {
-    const chartCanvas = chartRef.current?.chartInstance?.canvas; // Access canvas element
+    const chartCanvas = fullScreen ? fullChartRef.current?.chartInstance?.canvas : chartRef.current?.chartInstance?.canvas;
     if (chartCanvas) {
       const handleMouseMove = (event) => {
         const rect = chartCanvas.getBoundingClientRect();
@@ -49,8 +52,7 @@ const CombinedChart = () => {
         chartCanvas.removeEventListener('mousemove', handleMouseMove);
       };
     }
-  }, []);
-
+  }, [fullScreen]);
 
   const timeframeToUrl = {
     '1min': `https://api.twelvedata.com/time_series?symbol=AAPL&interval=1min&apikey=${STOCK_API_KEY}`,
@@ -62,101 +64,112 @@ const CombinedChart = () => {
     'max': `https://api.twelvedata.com/time_series?symbol=AAPL&interval=45min&apikey=${STOCK_API_KEY}`,
   };
 
-  
   const handleTimeframeChange = (timeframe) => {
     setSelectedTimeframe(timeframe);
     setDataFetched(false);
-    console.log("selected timeframe", timeframe);
+    console.log("Selected timeframe:", timeframe);
   };
-
-
 
   const fetchData = async () => {
     if (!timeframeToUrl[selectedTimeframe]) {
       console.error("Invalid timeframe selected");
       return;
     }
-  
+
     try {
       const response = await fetch(timeframeToUrl[selectedTimeframe]);
       if (!response.ok) {
-        throw new Error(`Error fetching data: ${response.statusText}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-  
+
       const data = await response.json();
-      if (data.status !== "ok") {
-        throw new Error("API response status is not OK");
+      if (!data || !data.values) {
+        throw new Error("API response is missing 'values' field");
       }
-  
-      console.log(data);
+
+      console.log("Fetched data:", data);
       setDataFetched(true);
-      setRawData(data.values); // Directly use the "values" array from the response
-      console.log("Found data", data.values);
+      setRawData(data.values);
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("Error fetching data:", error.message);
     }
   };
-  
+
   useEffect(() => {
     if (!dataFetched) {
       fetchData();
     }
   }, [selectedTimeframe]);
-  
+
   useEffect(() => {
     if (rawData) {
-      const { timestamps, prices, volumes } = parseData(rawData);
-      setChartData({
-        labels: timestamps,
-        datasets: [
-          {
-            type: 'line',
-            label: 'Price (USD)',
-            data: prices,
-            borderColor: '#5e54ef',
-            backgroundColor: '#e9e8ff',
-            fill: true,
-            borderWidth: 2,
-            tension: 0.4,
-            pointRadius: 0,
-            yAxisID: 'y1',
-          },
-          {
-            type: 'bar',
-            label: 'Volume',
-            data: volumes,
-            backgroundColor: '#e7e9ec',
-            fill: true,
-            borderColor: '#e7e9ec',
-            borderWidth: 0,
-            yAxisID: 'y2',
-          },
-        ],
-      });
-      const latest = prices[prices.length - 1];
-      const previous = prices[prices.length - 2]; // Second-to-last value for change calculation
-      const change = latest - previous;
-      const percentChange = (change / previous) * 100;
+      try {
+        const { timestamps, prices, volumes } = parseData(rawData);
+        setChartData({
+          labels: timestamps,
+          datasets: [
+            {
+              type: 'line',
+              label: 'Price (USD)',
+              data: prices,
+              borderColor: '#5e54ef',
+              backgroundColor: '#e9e8ff',
+              // fill: true,
+              borderWidth: 2,
+              tension: 0.4,
+              pointRadius: 0,
+              yAxisID: 'y1',
+            },
+            {
+              type: 'bar',
+              label: 'Volume',
+              data: volumes,
+              backgroundColor: '#e7e9ec',
+              fill: true,
+              borderColor: '#e7e9ec',
+              borderWidth: 0,
+              yAxisID: 'y2',
+            },
+          ],
+        });
 
-      setLatestPrice(latest.toFixed(2));
-      setPriceChange(change.toFixed(2));
-      setPercentageChange(percentChange.toFixed(2));
+        const latest = prices[prices.length - 1];
+        const previous = prices[prices.length - 2]; // Second-to-last value for change calculation
+        const change = latest - previous;
+        const percentChange = (change / previous) * 100;
+
+        setLatestPrice(latest.toFixed(2));
+        setPriceChange(change.toFixed(2));
+        setPercentageChange(percentChange.toFixed(2));
+      } catch (error) {
+        console.error("Error parsing chart data:", error.message);
+      }
     }
   }, [rawData]);
-  
+
   const parseData = (data) => {
-    const timestamps = data.map((entry) => entry.datetime).reverse(); // Reverse for chronological order
-    const prices = data.map((entry) => parseFloat(entry.close)).reverse();
-    const volumes = data.map((entry) => parseInt(entry.volume, 10)).reverse();
-  
-    return { timestamps, prices, volumes };
+    try {
+      if (!Array.isArray(data)) {
+        throw new Error("Data format is not an array");
+      }
+
+      const timestamps = data.map((entry) => entry.datetime).reverse();
+      const prices = data.map((entry) => parseFloat(entry.close)).reverse();
+      const volumes = data.map((entry) => parseInt(entry.volume, 10)).reverse();
+
+      return { timestamps, prices, volumes };
+    } catch (error) {
+      console.error("Error parsing data:", error.message);
+      return { timestamps: [], prices: [], volumes: [] };
+    }
   };
-  
+
+
   const options = {
     responsive: true,
-    maintainAspectRatio:true,
-    axis : 'xy',
-    mode : 'interpolate',
+    maintainAspectRatio: true,
+    axis: 'xy',
+    mode: 'interpolate',
     interaction: {
       mode: 'nearest',
       intersect: false,
@@ -221,30 +234,30 @@ const CombinedChart = () => {
         },
         external: (context) => {
           const { chart, tooltip } = context;
-  
+
           if (!tooltip || tooltip.opacity === 0) return;
-  
+
           const ctx = chart.ctx;
           const x = tooltip.caretX;
           const y = tooltip.caretY;
-  
+
           ctx.save();
           ctx.setLineDash([5, 5]); // Dashed line style
           ctx.strokeStyle = '#5e54ef';
           ctx.lineWidth = 1;
-  
+
           // Draw horizontal line
           ctx.beginPath();
           ctx.moveTo(chart.chartArea.left, y);
           ctx.lineTo(chart.chartArea.right, y);
           ctx.stroke();
-  
+
           // Draw vertical line
           ctx.beginPath();
           ctx.moveTo(x, chart.chartArea.top);
           ctx.lineTo(x, chart.chartArea.bottom);
           ctx.stroke();
-  
+
           ctx.restore();
           let tooltipEl = document.getElementById('custom-tooltip');
 
@@ -259,6 +272,7 @@ const CombinedChart = () => {
             tooltipEl.style.borderRadius = '8px';
             tooltipEl.style.pointerEvents = 'none';
             tooltipEl.style.transition = 'opacity 0.5s ease';
+            tooltipEl.style.zIndex = '1000';
             document.body.appendChild(tooltipEl);
           }
 
@@ -277,15 +291,15 @@ const CombinedChart = () => {
           // Position the tooltip
           const position = chart.canvas.getBoundingClientRect();
           tooltipEl.style.opacity = 1;
-          tooltipEl.style.left = position.right +'px';
+          tooltipEl.style.left = position.right + 'px';
           tooltipEl.style.top = position.top + tooltip.caretY + 'px';
-  
+
         },
       },
     },
 
   };
-  
+
 
   if (!chartData || !dataFetched) return (
     <div className="flex w-screen h-screen backdrop-blur-md items-center justify-center" role="status">
@@ -297,42 +311,68 @@ const CombinedChart = () => {
   );
 
   return (
-    <div className="flex flex-col font-inter items-center w-full max-h-full bg-[#ffffff] p-2 md:p-4">
-      <div className='flex flex-col relative items-center justify-between w-full max-w-7xl mb-4'>
-
-        <div className='flex flex-row w-full items-start justify-start mb-4 '>
-          <div className='font-noto-kr font-semibold text-5xl text-black '>{latestPrice || 'Loading...'}</div>
-          <div className=' flex w-full h-min items-start justify-start'>
-            <div className='font-noto-kr font-semibold text-lg text-gray-300 '>USD</div>
+    <div className="flex flex-col font-inter items-center w-full max-h-full bg-white p-2 sm:p-4 md:p-6">
+      <div className="flex flex-col relative items-center justify-between w-full max-w-7xl mb-4">
+        {/* Price and Currency */}
+        <div className="flex flex-col sm:flex-row w-full items-start justify-start mb-4">
+          <div className="font-noto-kr font-semibold text-3xl sm:text-4xl md:text-5xl text-black mr-2">
+            {latestPrice || 'Loading...'}
+          </div>
+          <div className="flex w-full h-full items-start justify-start leading-3">
+            <div className="font-noto-kr font-semibold text-sm sm:text-base text-gray-300">USD</div>
           </div>
         </div>
-        <div className='flex flex-row w-full text-[#67bf6b] items-center justify-between'>{`+${priceChange} (${percentageChange}%)`}</div>
-        <div className='flex items-center justify-start w-full md:m-4'>
+
+        {/* Price Change */}
+        <div className="flex flex-row w-full text-[#67bf6b] items-center justify-between text-sm sm:text-base md:text-lg">
+          {`+${priceChange} (${percentageChange}%)`}
+        </div>
+
+        {/* TabBar */}
+        <div className="flex items-center justify-start w-full mt-4 sm:mt-6 md:mt-8">
           <TabBar />
         </div>
 
-        <div className={`bg-white p-6 w-full mb-8`}>
-          <div className='flex flex-row items-center justify-between w-full mb-4'>
-            <div className='flex flex-row items-center justify-between w-fit'>
-              <div className='flex flex-row items-center justify-between w-full cursor-pointer p-2 hover:bg-gray-100 hover:rounded-md'>
-                <img src={FullScreenIcon} alt="FullScreen Icon" className="w-4 h-4 mr-1" />
-                <div className='text-md text-gray-500 mr-4 '> FullScreen</div>
+        {/* Chart Container */}
+        <div className="bg-white flex flex-col items-center justify-center p-4 sm:p-6 w-full mb-8 rounded-lg shadow-md">
+          <div className="flex flex-col sm:flex-row items-center justify-between w-full mb-4">
+            {/* FullScreen and Compare Buttons */}
+            <div className="flex flex-row items-center justify-between w-full sm:w-auto mb-4 sm:mb-0">
+              <div onClick={()=>{setFullScreen(true)}} className="flex flex-row items-center cursor-pointer p-2 hover:bg-gray-100 rounded-md">
+                <img src={FullScreenIcon} alt="FullScreen Icon" className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                <div className="text-sm sm:text-md text-gray-500">FullScreen</div>
               </div>
-              <div className='flex flex-row items-center justify-between w-full cursor-pointer p-2 hover:bg-gray-100 hover:rounded-md'>
-                <img src={compareIcon} alt="FullScreen Icon" className="w-4 h-4 mr-1" />
-                <div className=' text-md text-gray-500 mr-4'> Compare</div>
+              <div className="flex flex-row items-center cursor-pointer p-2 hover:bg-gray-100 rounded-md ml-4">
+                <img src={compareIcon} alt="Compare Icon" className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                <div className="text-sm sm:text-md text-gray-500">Compare</div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end w-2/3 mb-4">
+            {/* Timeframe Selector */}
+            <div className="flex items-center justify-end w-full sm:w-2/3">
               <TimeframeSelector selectedTimeframe={selectedTimeframe} onTimeframeChange={handleTimeframeChange} />
             </div>
           </div>
-          <Chart ref={chartRef} type="bar" data={chartData} options={options} />
-        </div>
 
+          {/* Chart */}
+          <div className='w-full h-full flex items-center justify-center'>
+            <Chart ref={chartRef} type="bar" data={chartData} options={options} />
+          </div>
+        </div>
       </div>
+
+      { fullScreen && (
+        <div className="fixed top-0 left-0 w-screen h-screen bg-gray-400 backdrop-blur-xl bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="relative flex w-full h-full p-8 items-center justify-center">
+            <div className="absolute top-8 right-8 cursor-pointer" onClick={() => {setFullScreen(false)}}>  
+              <img src={closeIcon} alt="Close Icon" className="w-6 h-6" />  
+            </div>
+            <Chart ref={fullChartRef} type="bar" data={chartData} options={options} />
+          </div>
+        </div>
+      )}
     </div>
+
   );
 };
 
